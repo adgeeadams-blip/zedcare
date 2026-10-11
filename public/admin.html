@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b6b53">
+<title>ZedCare Admin | Help requests</title>
+<style>
+:root{--green:#0b6b53;--green2:#084b3d;--gold:#e9b949;--ink:#172b27;--muted:#65736f;--bg:#f4f7f5;--line:#dfe8e3;--red:#a52828}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--ink);background:var(--bg);line-height:1.45}
+button,input,select{font:inherit}button{cursor:pointer}
+header{background:linear-gradient(125deg,var(--green2),var(--green));color:#fff;padding:18px max(18px,calc((100% - 1100px)/2));display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}.mark{width:44px;height:44px;border-radius:14px;background:#fff;color:var(--green);display:grid;place-items:center;font-size:25px;font-weight:bold}.brand h1{font-size:22px;margin:0}.brand p{margin:2px 0 0;font-size:12px;opacity:.9}
+.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;text-decoration:none;display:inline-block}.btn-light{background:#fff;color:var(--green)}.btn-green{background:var(--green);color:#fff}.btn-outline{border:1px solid var(--line);background:#fff;color:var(--green)}.btn-wa{background:#25d366;color:#fff;font-size:13px;padding:8px 11px}
+main{max-width:1100px;margin:auto;padding:22px 16px 50px}.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px}
+.login{max-width:380px;margin:40px auto}.login input{width:100%;padding:11px;border:1px solid #cbd8d1;border-radius:9px;margin:8px 0 12px}
+.err{color:var(--red);font-size:13px;min-height:18px}.hidden{display:none!important}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}.toolbar input,.toolbar select{padding:9px;border:1px solid #cbd8d1;border-radius:9px;background:#fff}.toolbar input{flex:1;min-width:180px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}.stat b{display:block;font-size:24px}.stat span{font-size:12px;color:var(--muted)}
+.req{border:1px solid var(--line);border-radius:12px;padding:15px;margin:10px 0;background:#fff}.req-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:start}.req h3{margin:0 0 4px;font-size:16px}.req p{margin:4px 0;color:var(--muted);font-size:13px}.req .details{color:var(--ink);white-space:pre-wrap}
+.badge{display:inline-block;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#e5f3eb;color:#176246}.urgent{background:#fde8e8;color:var(--red)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.actions select{padding:7px;border:1px solid #cbd8d1;border-radius:8px}
+.empty{color:var(--muted);padding:14px 0}
+@media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="mark">Z</div><div><h1>ZedCare Admin</h1><p>All help requests</p></div></div>
+  <div><a class="btn btn-light" href="/">View site</a> <button class="btn btn-light hidden" id="logoutBtn">Log out</button></div>
+</header>
+<main>
+  <section class="panel login" id="loginPanel">
+    <h2 style="margin-top:0">Admin sign in</h2>
+    <form id="loginForm">
+      <label for="pw"><strong>Admin password</strong></label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+      <div class="err" id="loginErr"></div>
+      <button class="btn btn-green" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="dash" class="hidden">
+    <div class="stats" id="stats"></div>
+    <div class="toolbar">
+      <input id="search" placeholder="Search name, phone, town, reference...">
+      <select id="filter"><option value="">All statuses</option></select>
+      <button class="btn btn-outline" id="refreshBtn">Refresh</button>
+      <button class="btn btn-outline" id="exportBtn">Export CSV</button>
+    </div>
+    <div class="err" id="dashErr"></div>
+    <div id="list"></div>
+  </section>
+</main>
+<script>
+const STATUSES=['New','In progress','Completed','Cancelled'];
+const $=id=>document.getElementById(id);
+let password=sessionStorage.getItem('zedcare_admin')||'';
+let requests=[];
+$('filter').innerHTML+=STATUSES.map(s=>`<option>${s}</option>`).join('');
+
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function waNumber(phone){let d=String(phone).replace(/\D/g,'');if(d.startsWith('0'))d='260'+d.slice(1);else if(d.length===9)d='260'+d;return d}
+
+async function api(method,body){
+  const res=await fetch('/api/requests',{method,headers:{'Content-Type':'application/json','x-admin-password':password},body:body?JSON.stringify(body):undefined});
+  const data=await res.json().catch(()=>({}));
+  if(res.status===401){logout();throw new Error('Incorrect password');}
+  if(!res.ok) throw new Error(data.error||'Request failed');
+  return data;
+}
+
+async function load(){
+  $('dashErr').textContent='';
+  try{requests=await api('GET');render()}catch(e){$('dashErr').textContent=e.message}
+}
+
+function render(){
+  const q=$('search').value.trim().toLowerCase(),f=$('filter').value;
+  const count=s=>requests.filter(r=>r.status===s).length;
+  $('stats').innerHTML=`<div class="stat"><b>${requests.length}</b><span>Total requests</span></div>`+['New','In progress','Completed'].map(s=>`<div class="stat"><b>${count(s)}</b><span>${s}</span></div>`).join('');
+  const list=requests.filter(r=>(!f||r.status===f)&&(!q||[r.reference,r.name,r.phone,r.town,r.service,r.details].join(' ').toLowerCase().includes(q)));
+  $('list').innerHTML=list.length?list.map(r=>`<div class="req">
+    <div class="req-top"><div><h3>${esc(r.service)}</h3><p><strong>${esc(r.reference)}</strong> · ${new Date(r.createdAt).toLocaleString()}</p></div>
+    <div><span class="badge ${/urgent/i.test(r.urgency)?'urgent':''}">${esc(r.urgency)}</span> <span class="badge">${esc(r.status)}</span></div></div>
+    <p><strong>Name:</strong> ${esc(r.name)} · <strong>Phone:</strong> <a href="tel:${esc(r.phone)}">${esc(r.phone)}</a> · <strong>Area:</strong> ${esc(r.town)}</p>
+    <p><strong>Preferred date:</strong> ${esc(r.preferredDate||'Not given')} · <strong>Payment:</strong> ${esc(r.payment)} · <strong>Contact by:</strong> ${esc(r.contact)}</p>
+    <p class="details">${esc(r.details||'No extra details supplied.')}</p>
+    <div class="actions">
+      <label>Status <select data-id="${r.id}">${STATUSES.map(s=>`<option ${s===r.status?'selected':''}>${s}</option>`).join('')}</select></label>
+      <a class="btn btn-wa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent('Hello '+r.name+', this is ZedCare about your request '+r.reference+' ('+r.service+').')}">WhatsApp client</a>
+    </div></div>`).join(''):'<p class="empty">No requests found.</p>';
+}
+
+$('list').addEventListener('change',async e=>{
+  const sel=e.target.closest('select[data-id]');if(!sel)return;
+  try{const updated=await api('PATCH',{id:Number(sel.dataset.id),status:sel.value});requests=requests.map(r=>r.id===updated.id?updated:r);render()}
+  catch(err){$('dashErr').textContent=err.message;render()}
+});
+
+function exportCsv(){
+  const cols=['reference','createdAt','service','urgency','status','name','phone','town','preferredDate','payment','contact','details'];
+  const csv=[cols.join(',')].concat(requests.map(r=>cols.map(c=>'"'+String(r[c]??'').replace(/"/g,'""')+'"').join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='zedcare-requests.csv';a.click();URL.revokeObjectURL(a.href);
+}
+
+function showDash(on){$('loginPanel').classList.toggle('hidden',on);$('dash').classList.toggle('hidden',!on);$('logoutBtn').classList.toggle('hidden',!on)}
+function logout(){password='';sessionStorage.removeItem('zedcare_admin');requests=[];showDash(false)}
+
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();$('loginErr').textContent='';password=$('pw').value;
+  try{requests=await api('GET');sessionStorage.setItem('zedcare_admin',password);$('pw').value='';showDash(true);render()}
+  catch(err){$('loginErr').textContent=err.message}
+});
+$('logoutBtn').onclick=logout;$('refreshBtn').onclick=load;$('exportBtn').onclick=exportCsv;
+$('search').oninput=render;$('filter').onchange=render;
+if(password){showDash(true);load()}
+</script>
+</body>
+</html>
